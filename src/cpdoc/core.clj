@@ -5,7 +5,8 @@
             [clojure.java.io :as io]
             [me.raynes.fs :as fs]
             [pathetic.core :as path]
-            [clojure.tools.cli :as cli]))
+            [clojure.tools.cli :as cli]
+            [clojure.string :as str]))
 
 
 (def template-resources ["_template/index.html"
@@ -60,15 +61,28 @@
            (recur (clojure.string/replace result (get match 0) (url-replacement match)))))))
    state])
 
-(defn process-html [content root path-relative-to-root]
-  (let [processed-html (mk/md-to-html-string content :custom-transformers [links-processor])]
+(defn get-header [content]
+  "Retrives the header value from the markdown content"
+  (let [first-line (get (str/split content #"\n") 0)]
+    (if (.startsWith first-line "# ")
+      (str/trim (subs first-line 1))
+      nil)))
+
+(defn process-html [{:keys [content root path-relative-to-root file-name]}]
+  (let [processed-html (mk/md-to-html-string content :custom-transformers [links-processor])
+        content-header (get-header content)
+        header (if content-header
+                 content-header
+                 (file-name))]
 
     (-> (slurp (io/resource "_template/index.html"))
 
         (clojure.string/replace "{{template_path}}" (str path-relative-to-root "/_template"))
         (clojure.string/replace "{{menu}}" (str "<h1>Menu</h1>" (build-menu-links root path-relative-to-root)))
         ; Content
-        (clojure.string/replace "{{content}}" processed-html))))
+        (clojure.string/replace "{{content}}" processed-html)
+        (clojure.string/replace "{{title}}" header)
+        )))
 
 (defn file-handler [input root-path output]
   (println (str "File " input "is being processed"))
@@ -83,13 +97,16 @@
       (if (markdon? input)
 
         ; markdown file
-        (let [content (slurp input)
-              output-file-name (file output relative-dir-path
-                                     (str (fs/name input) ".html"))
-              ; Reverse path (like .. or ../..)
-              path-relative-to-root (path/relativize (file output relative-dir-path) output)]
+        (let [file-name (fs/name input)
+              output-file-name (file output relative-dir-path (str file-name ".html"))
+              data {:content               (slurp input)
+                    :root                  root-path
+                    :output-name           output-file-name
+                    ; Reverse path (like .. or ../..)
+                    :path-relative-to-root (path/relativize (file output relative-dir-path) output)
+                    :file-name             file-name}]
 
-          (spit output-file-name (process-html content root-path path-relative-to-root)))
+          (spit output-file-name (process-html data)))
 
         ;other file
         (fs/copy input

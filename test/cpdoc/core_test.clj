@@ -1,7 +1,9 @@
-(ns simple-doc.core-test
+(ns cpdoc.core-test
   (:require [clojure.test :refer :all]
-            [simple-doc.core :refer :all]))
+            [cpdoc.core :refer :all]))
 
-(deftest a-test
-  (testing "FIXME, I fail."
-    (is (= 0 1))))
+(deftest get-header-test
+  (testing "Header retriver"
+    (is (= "test" (get-header "# test\ntext")))
+    (is (= nil (get-header "test\ntext")))
+    ))
