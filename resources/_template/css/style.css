@@ -1,24 +1,5 @@
-.main-menu {
-    background-color: #3498db;
-    padding: 20px;
-    margin-top: 20px;
-    border-radius: 20px;
-    color: #fff;
-}
-
-.main-menu .nav > li > a:hover,
-.main-menu .nav > li > a:focus {
-    background-color: #7eafdb;
-}
-
-.main-menu h1,
-.main-menu h2,
-.main-menu h3,
-.main-menu h4,
-.main-menu h5,
-.main-menu h6,
-.main-menu a {
-    color: white;
+.main-block {
+    margin-top: 30px;
 }
 
 .content img {
