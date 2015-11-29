@@ -6,13 +6,18 @@
             [me.raynes.fs :as fs]
             [pathetic.core :as path]
             [clojure.tools.cli :as cli]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [cheshire.core :as json]))
 
 
 (def template-resources ["_template/index.html"
                          "_template/css/bootstrap.css"
                          "_template/css/main.css"
-                         "_template/css/style.css"])
+                         "_template/css/style.css"
+                         "_template/js/lunr.js"
+                         "_template/js/main.js"
+                         "_template/js/jquery-1.11.3.js"
+                         ])
 
 (def md-formats #{".md", ".markdown"})
 
@@ -21,19 +26,17 @@
 
 (defn build-menu-links [root path-relative-to-root]
   (let [files-in-root (last (first (fs/iterate-dir root)))]
-    (str "<ul class=\"nav\">"
-         (clojure.string/join ""
-                              (->> files-in-root
-                                   (filter #(markdon? (file root %)))
-                                   (map #(str "<li><a href=\""
-                                              path-relative-to-root
-                                              "/"
-                                              (fs/name %)
-                                              ".html\">"
-                                              (.toUpperCase (fs/name %))
-                                              "</a></li>"))))
-         "</ul>"
-         )))
+    (str/join ""
+              (->> files-in-root
+                   (filter #(markdon? (file root %)))
+                   (map #(str "<a class=\"list-group-item\" href=\""
+                              path-relative-to-root
+                              "/"
+                              (fs/name %)
+                              ".html\">"
+                              (.toUpperCase (fs/name %))
+                              "</a>"))))
+    ))
 
 (defn url-replacement [match]
   (if match
@@ -46,7 +49,7 @@
                (not (and (.startsWith value "http://")
                          (.startsWith value "https://"))))
         ;Modify to url
-        (clojure.string/replace replacement value (str name ".html"))
+        (str/replace replacement value (str name ".html"))
 
         ; Return without modification
         replacement))
@@ -58,7 +61,7 @@
        (let [match (re-find matcher)]
          (if-not match
            result
-           (recur (clojure.string/replace result (get match 0) (url-replacement match)))))))
+           (recur (str/replace result (get match 0) (url-replacement match)))))))
    state])
 
 (defn get-header [content]
@@ -68,6 +71,16 @@
       (str/trim (subs first-line 1))
       nil)))
 
+(defn generate-html-page [{:keys [menu content title root]}]
+  (-> (slurp (io/resource "_template/index.html"))
+
+      (str/replace "{{template_path}}" (str root "/_template"))
+      (str/replace "{{menu}}" menu)
+      ; Content
+      (str/replace "{{content}}" content)
+      (str/replace "{{title}}" title)
+      (str/replace "{{root}}" root)))
+
 (defn process-html [{:keys [content root path-relative-to-root file-name]}]
   (let [processed-html (mk/md-to-html-string content :custom-transformers [links-processor])
         content-header (get-header content)
@@ -75,14 +88,10 @@
                  content-header
                  (file-name))]
 
-    (-> (slurp (io/resource "_template/index.html"))
-
-        (clojure.string/replace "{{template_path}}" (str path-relative-to-root "/_template"))
-        (clojure.string/replace "{{menu}}" (str "<h1>Menu</h1>" (build-menu-links root path-relative-to-root)))
-        ; Content
-        (clojure.string/replace "{{content}}" processed-html)
-        (clojure.string/replace "{{title}}" header)
-        )))
+    (generate-html-page {:menu    (build-menu-links root path-relative-to-root)
+                         :content processed-html
+                         :title   header
+                         :root    path-relative-to-root})))
 
 (defn file-handler [input root-path output]
   (println (str "File " input "is being processed"))
@@ -113,6 +122,37 @@
                  (file output relative-dir-path (.getName input)))
         ))))
 
+(defn create-search-index [files input]
+  (->> files
+       (filter #(markdon? (file %)))
+       (mapv (fn [f] (let [content (slurp f)
+                           header (get-header content)
+                           relative-path (path/relativize input (fs/absolute (fs/parent f)))]
+                       {:file    (str relative-path "/" (fs/name f) ".html")
+                        :header  header
+                        :content (str/replace content #"[^\w\s\.,]" "")})))))
+
+(defn generate-map-page [input output]
+  (generate-html-page {:menu    (build-menu-links input ".")
+                       :content (str/join "" (fs/walk
+                                               (fn [cur-dir _ files]
+                                                 (str "<h1>" (path/relativize input cur-dir) "</h1><ul>"
+                                                      (str/join ""
+                                                                (->> files
+                                                                     (filter markdon?)
+                                                                     (map #(str "<li><a href=\""
+                                                                                (path/relativize input cur-dir)
+                                                                                "/"
+                                                                                (fs/name %)
+                                                                                ".html\">"
+                                                                                (fs/base-name %)
+                                                                                "</a></li>"))))
+                                                      "</ul>"))
+                                               input))
+                       :title   "Map"
+                       :root    "."}
+                      ))
+
 (def cli-options
   ;; An option with a required argument
   [["-o" "--output Path" "Output path"
@@ -141,10 +181,21 @@
             (fs/mkdirs (.getParent output-res))
             (spit output-res (slurp (io/resource res)))))
 
-        ; Process all files
-        (doseq [file (flatten (fs/walk
-                                (fn [cur-dir _ files]
-                                  (map #(file cur-dir %) files))
-                                input))]
-          (file-handler file input output))
-        ))))
+        ;Generate map
+        (spit (file output "__map.html") (generate-map-page input output))
+
+        (let [files (flatten (fs/walk
+                               (fn [cur-dir _ files]
+                                 (map #(file cur-dir %) files))
+                               input))]
+          ; Process all files
+          (doseq [file files]
+            (file-handler file input output))
+
+          ; Search index
+          (spit (file output "search.js")
+                (str "loadSearchIndex("
+                     (json/generate-string (create-search-index files input))
+                     ");"))
+          ; end
+          )))))

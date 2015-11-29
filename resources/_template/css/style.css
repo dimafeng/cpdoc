@@ -1,13 +1,13 @@
 .main-menu {
     background-color: #3498db;
-    padding: 10px 20px 20px 20px;
+    padding: 20px;
     margin-top: 20px;
     border-radius: 20px;
+    color: #fff;
 }
 
 .main-menu .nav > li > a:hover,
-.main-menu .nav > li > a:focus
-{
+.main-menu .nav > li > a:focus {
     background-color: #7eafdb;
 }
 
@@ -21,6 +21,17 @@
     color: white;
 }
 
-.content img{
+.content img {
     width: 100%;
+}
+
+.search-button {
+    border: 1px solid #fff;
+    width: 100%;
+    padding: 3px 0px 3px 10px;
+    cursor: text;
+}
+
+.content .highlight {
+    background-color: yellow;
 }

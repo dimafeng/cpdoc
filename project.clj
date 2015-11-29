@@ -10,4 +10,5 @@
                  [markdown-clj "0.9.80"]
                  [me.raynes/fs "1.4.6"]
                  [pathetic "0.5.1"]
-                 [org.clojure/tools.cli "0.3.3"]])
+                 [org.clojure/tools.cli "0.3.3"]
+                 [cheshire "5.5.0"]])
