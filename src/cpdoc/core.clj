@@ -71,7 +71,7 @@
       (str/trim (subs first-line 1))
       nil)))
 
-(defn generate-html-page [{:keys [menu content title root]}]
+(defn generate-html-page [{:keys [menu content title root project-name]}]
   (-> (slurp (io/resource "_template/index.html"))
 
       (str/replace "{{template_path}}" (str root "/_template"))
@@ -79,21 +79,23 @@
       ; Content
       (str/replace "{{content}}" content)
       (str/replace "{{title}}" title)
+      (str/replace "{{project_name}}" (if project-name project-name "Documentation"))
       (str/replace "{{root}}" root)))
 
-(defn process-html [{:keys [content root path-relative-to-root file-name]}]
+(defn process-html [{:keys [content root path-relative-to-root file-name project-name]}]
   (let [processed-html (mk/md-to-html-string content :custom-transformers [links-processor])
         content-header (get-header content)
         header (if content-header
                  content-header
                  (file-name))]
 
-    (generate-html-page {:menu    (build-menu-links root path-relative-to-root)
-                         :content processed-html
-                         :title   header
-                         :root    path-relative-to-root})))
+    (generate-html-page {:menu         (build-menu-links root path-relative-to-root)
+                         :content      processed-html
+                         :title        header
+                         :root         path-relative-to-root
+                         :project-name project-name})))
 
-(defn file-handler [input root-path output]
+(defn file-handler [input root-path output project-name]
   (println (str "File " input "is being processed"))
   (let [relative-file-path (path/relativize root-path input)
         relative-dir-path (subs relative-file-path 0
@@ -113,7 +115,8 @@
                     :output-name           output-file-name
                     ; Reverse path (like .. or ../..)
                     :path-relative-to-root (path/relativize (file output relative-dir-path) output)
-                    :file-name             file-name}]
+                    :file-name             file-name
+                    :project-name          project-name}]
 
           (spit output-file-name (process-html data)))
 
@@ -132,25 +135,26 @@
                         :header  header
                         :content (str/replace content #"[^\w\s\.,]" "")})))))
 
-(defn generate-map-page [input output]
-  (generate-html-page {:menu    (build-menu-links input ".")
-                       :content (str/join "" (fs/walk
-                                               (fn [cur-dir _ files]
-                                                 (str "<h1>" (path/relativize input cur-dir) "</h1><ul>"
-                                                      (str/join ""
-                                                                (->> files
-                                                                     (filter markdon?)
-                                                                     (map #(str "<li><a href=\""
-                                                                                (path/relativize input cur-dir)
-                                                                                "/"
-                                                                                (fs/name %)
-                                                                                ".html\">"
-                                                                                (fs/base-name %)
-                                                                                "</a></li>"))))
-                                                      "</ul>"))
-                                               input))
-                       :title   "Map"
-                       :root    "."}
+(defn generate-map-page [input output name]
+  (generate-html-page {:menu         (build-menu-links input ".")
+                       :content      (str/join "" (fs/walk
+                                                    (fn [cur-dir _ files]
+                                                      (str "<h1>" (path/relativize input cur-dir) "</h1><ul>"
+                                                           (str/join ""
+                                                                     (->> files
+                                                                          (filter markdon?)
+                                                                          (map #(str "<li><a href=\""
+                                                                                     (path/relativize input cur-dir)
+                                                                                     "/"
+                                                                                     (fs/name %)
+                                                                                     ".html\">"
+                                                                                     (fs/base-name %)
+                                                                                     "</a></li>"))))
+                                                           "</ul>"))
+                                                    input))
+                       :title        "Map"
+                       :root         "."
+                       :project-name name}
                       ))
 
 (def cli-options
@@ -164,13 +168,17 @@
     :id :input
     :validate [#(fs/readable? %) "Input directory must be readable"]]
 
+   ["-n" "--name Project Name" ""
+    :id :name]
+
    ["-h" "--help"]])
 
 (defn -main [& args]
   (let [params (cli/parse-opts args cli-options)
         options (:options params)
         output (file (:output options))
-        input (:input options)]
+        input (:input options)
+        name (:name options)]
 
     (if (:help options)
       (println (:summary params))
@@ -182,7 +190,7 @@
             (spit output-res (slurp (io/resource res)))))
 
         ;Generate map
-        (spit (file output "__map.html") (generate-map-page input output))
+        (spit (file output "__map.html") (generate-map-page input output name))
 
         (let [files (flatten (fs/walk
                                (fn [cur-dir _ files]
@@ -190,7 +198,7 @@
                                input))]
           ; Process all files
           (doseq [file files]
-            (file-handler file input output))
+            (file-handler file input output name))
 
           ; Search index
           (spit (file output "search.js")
